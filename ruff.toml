@@ -1,0 +1,34 @@
+line-length = 100
+target-version = "py311"
+
+extend-exclude = [
+    "data",
+    "notebooks/scratch",
+    ".venv",
+]
+
+[lint]
+select = [
+    "E",      # pycodestyle errors
+    "W",      # pycodestyle warnings
+    "F",      # pyflakes
+    "I",      # isort
+    "B",      # flake8-bugbear
+    "UP",     # pyupgrade
+    "N",      # pep8-naming
+    "SIM",    # flake8-simplify
+    "RUF",    # ruff-specific
+    "C4",     # flake8-comprehensions
+    "PTH",    # flake8-use-pathlib
+]
+ignore = [
+    "E501",   # line length handled by formatter
+    "B008",   # do not perform function calls in argument defaults (common w/ pydantic)
+]
+
+[lint.per-file-ignores]
+"tests/**" = ["N802", "N803"]   # allow non-snake_case in test fixtures
+"notebooks/**" = ["E402", "F401", "F811"]
+
+[lint.isort]
+known-first-party = ["dark_arts"]
