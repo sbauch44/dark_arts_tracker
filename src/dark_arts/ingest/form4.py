@@ -124,20 +124,37 @@ CASE_STUDIES: tuple[CaseStudy, ...] = (
 )
 
 
+def portfolio_dir_for_cik(cik: str, base_dir: str | Path | None = None) -> Path:
+    """Per-CIK Portfolio directory under ``data/raw/form4/<cik>/``.
+
+    Each CIK gets an isolated Portfolio so that
+    :func:`iter_form4_rows` only sees that CIK's filings, ``skip_existing``
+    checks the right tars, and the layout extends to the Russell-3000 case
+    by just having more peers under ``data/raw/form4/``.
+    """
+    root = Path(base_dir) if base_dir is not None else (RAW / "form4")
+    d = root / cik
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
 def download_form4(
     cik: str,
     filing_date: tuple[str, str] | str,
-    portfolio_path: str | Path | None = None,
+    base_dir: str | Path | None = None,
     *,
     quiet: bool = True,
 ) -> Portfolio:
     """Download Form 4 submissions for *cik* into a datamule Portfolio.
 
-    Idempotent: ``download_submissions`` defaults to ``skip_existing=True``,
-    so already-downloaded submissions are not re-fetched. Returns the loaded
-    Portfolio so callers can chain into :func:`iter_form4_rows`.
+    The Portfolio is rooted at a per-CIK subdirectory
+    (:func:`portfolio_dir_for_cik`) so issues' tars don't co-mingle. Idempotent:
+    ``download_submissions`` defaults to ``skip_existing=True``, so already-
+    downloaded submissions are not re-fetched. Returns the loaded Portfolio so
+    callers can chain into :func:`iter_form4_rows`.
     """
-    p = datamule.Portfolio(str(portfolio_path or RAW))
+    pdir = portfolio_dir_for_cik(cik, base_dir=base_dir)
+    p = datamule.Portfolio(str(pdir))
     p.download_submissions(
         cik=cik,
         submission_type="4",
@@ -169,7 +186,7 @@ def iter_form4_rows(portfolio: Portfolio) -> Iterator[Form4Row]:
 def ingest_form4(
     cik: str,
     filing_date: tuple[str, str] | str,
-    portfolio_path: str | Path | None = None,
+    base_dir: str | Path | None = None,
 ) -> list[Form4Row]:
     """End-to-end: download + parse Form 4 filings for one issuer/window.
 
@@ -177,13 +194,13 @@ def ingest_form4(
     the parse are pure functions of the inputs (the download is idempotent;
     the parse has no side effects).
     """
-    p = download_form4(cik, filing_date, portfolio_path)
+    p = download_form4(cik, filing_date, base_dir)
     return list(iter_form4_rows(p))
 
 
-def ingest_case_study(study: CaseStudy, portfolio_path: str | Path | None = None) -> list[Form4Row]:
+def ingest_case_study(study: CaseStudy, base_dir: str | Path | None = None) -> list[Form4Row]:
     """Convenience: run :func:`ingest_form4` for one :class:`CaseStudy`."""
-    return ingest_form4(study.cik, study.filing_date_window, portfolio_path)
+    return ingest_form4(study.cik, study.filing_date_window, base_dir)
 
 
 __all__ = [
@@ -193,4 +210,5 @@ __all__ = [
     "ingest_case_study",
     "ingest_form4",
     "iter_form4_rows",
+    "portfolio_dir_for_cik",
 ]

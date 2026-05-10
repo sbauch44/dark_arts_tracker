@@ -17,6 +17,7 @@ from dark_arts.ingest.form4 import (
     CASE_STUDIES,
     CaseStudy,
     iter_form4_rows,
+    portfolio_dir_for_cik,
 )
 
 FIXTURE = Path(__file__).parent / "fixtures" / "form4_sample.xml"
@@ -135,6 +136,21 @@ def test_case_studies_are_unique_and_well_formed() -> None:
         import datetime
         datetime.date.fromisoformat(start)
         datetime.date.fromisoformat(end)
+
+
+def test_portfolio_dir_for_cik_isolates_issuers(tmp_path: Path) -> None:
+    """Per-CIK Portfolio dirs are what keep ``iter_form4_rows`` from seeing
+    other issuers' tars. The function should create the per-CIK subdir and
+    return distinct paths per CIK under the same base."""
+    a = portfolio_dir_for_cik("0001549084", base_dir=tmp_path)
+    b = portfolio_dir_for_cik("0001326380", base_dir=tmp_path)
+    assert a != b
+    assert a.exists() and a.is_dir()
+    assert b.exists() and b.is_dir()
+    assert a.name == "0001549084"
+    assert b.name == "0001326380"
+    # Same call twice is idempotent (no exists_ok=False errors).
+    assert portfolio_dir_for_cik("0001549084", base_dir=tmp_path) == a
 
 
 def test_case_studies_are_immutable() -> None:
