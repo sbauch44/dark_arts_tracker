@@ -14,12 +14,12 @@
 # %%
 from __future__ import annotations
 
-import xml.etree.ElementTree as ET
 from typing import Any
 
 import datamule
 import polars as pl
 
+from dark_arts.parse.form4 import parse_form4_xml
 from dark_arts.paths import RAW
 
 # %% [markdown]
@@ -48,102 +48,10 @@ portfolio.download_submissions(
 # %% [markdown]
 # ## Parse the Form 4 XML
 #
-# Form 4 ships as XML with a stable schema. We extract a flat record per
-# transaction matching the columns we want in `grants.parquet`. Footnotes
-# come back as a dict keyed by `<footnote id="F1">` and are joined back into
-# the relevant transaction row via `<footnoteId>` references — but for the
-# smoke test we just attach the full footnotes blob to every row.
-#
-# datamule's own `Document.parse()` doesn't have a Form 4 mapping, so we
-# parse the raw bytes (`Document.content`) with stdlib ElementTree.
-
-# %%
-def _text(parent: ET.Element, path: str) -> str | None:
-    """Find one text leaf at `path` under `parent`. Tolerates `<x><value>foo</value></x>`."""
-    el = parent.find(path)
-    if el is None:
-        return None
-    # Many Form 4 leaves wrap their value in <value>.
-    val = el.find("value")
-    if val is not None and val.text:
-        return val.text.strip()
-    return el.text.strip() if el.text else None
-
-
-def _bool_int(parent: ET.Element, path: str) -> bool | None:
-    raw = _text(parent, path)
-    if raw is None:
-        return None
-    return raw.strip() in ("1", "true", "True")
-
-
-def parse_form4_xml(xml_bytes: bytes) -> list[dict[str, Any]]:
-    """Return one row per non-derivative + derivative transaction in the Form 4."""
-    root = ET.fromstring(xml_bytes)
-
-    issuer_cik = _text(root, "issuer/issuerCik")
-    issuer_name = _text(root, "issuer/issuerName")
-    ticker = _text(root, "issuer/issuerTradingSymbol")
-    period = _text(root, "periodOfReport")
-
-    # Reporting owner block (one Form 4 = one insider).
-    owner = root.find("reportingOwner") or ET.Element("none")
-    owner_cik = _text(owner, "reportingOwnerId/rptOwnerCik")
-    owner_name = _text(owner, "reportingOwnerId/rptOwnerName")
-    is_director = _bool_int(owner, "reportingOwnerRelationship/isDirector")
-    is_officer = _bool_int(owner, "reportingOwnerRelationship/isOfficer")
-    is_ten_pct_owner = _bool_int(owner, "reportingOwnerRelationship/isTenPercentOwner")
-    officer_title = _text(owner, "reportingOwnerRelationship/officerTitle")
-
-    footnotes = {
-        fn.get("id"): (fn.text or "").strip()
-        for fn in root.findall("footnotes/footnote")
-    }
-
-    rows: list[dict[str, Any]] = []
-    for tx_path, table_kind in (
-        ("nonDerivativeTable/nonDerivativeTransaction", "non_derivative"),
-        ("derivativeTable/derivativeTransaction", "derivative"),
-    ):
-        for tx in root.findall(tx_path):
-            rows.append({
-                "issuer_cik": issuer_cik,
-                "issuer_name": issuer_name,
-                "issuer_ticker": ticker,
-                "period_of_report": period,
-                "owner_cik": owner_cik,
-                "owner_name": owner_name,
-                "is_director": is_director,
-                "is_officer": is_officer,
-                "is_ten_pct_owner": is_ten_pct_owner,
-                "officer_title": officer_title,
-                "table_kind": table_kind,
-                "security_title": _text(tx, "securityTitle"),
-                "transaction_date": _text(tx, "transactionDate"),
-                "transaction_code": _text(tx, "transactionCoding/transactionCode"),
-                "shares": _text(tx, "transactionAmounts/transactionShares"),
-                "price_per_share": _text(tx, "transactionAmounts/transactionPricePerShare"),
-                "acquired_disposed": _text(
-                    tx, "transactionAmounts/transactionAcquiredDisposedCode"
-                ),
-                "shares_owned_after": _text(
-                    tx, "postTransactionAmounts/sharesOwnedFollowingTransaction"
-                ),
-                "ownership_form": _text(tx, "ownershipNature/directOrIndirectOwnership"),
-                # Derivative-only fields (will be None for non-derivative rows).
-                "conversion_or_exercise_price": _text(tx, "conversionOrExercisePrice"),
-                "exercise_date": _text(tx, "exerciseDate"),
-                "expiration_date": _text(tx, "expirationDate"),
-                "underlying_security_title": _text(
-                    tx, "underlyingSecurity/underlyingSecurityTitle"
-                ),
-                "underlying_shares": _text(tx, "underlyingSecurity/underlyingSecurityShares"),
-                # All footnotes attached as JSON-able dict; footnote-resolution is a
-                # later phase (the LLM extractor consumes the joined text).
-                "footnotes": footnotes,
-            })
-    return rows
-
+# `parse_form4_xml` lives in `dark_arts.parse.form4` (lifted out of this
+# notebook in Phase 1). It returns one dict per non-derivative + derivative
+# transaction with the per-filing footnote blob attached. See
+# `tests/test_form4_parse.py` for the full schema contract.
 
 # %% [markdown]
 # ## Walk the portfolio and parse every Form 4 doc
@@ -196,8 +104,7 @@ if footnote_blobs:
 # %% [markdown]
 # ## Next
 #
-# * Lift `parse_form4_xml` into `src/dark_arts/parse/form4.py` once we lock
-#   in the canonical column set.
+# * ✅ Parser lifted into `src/dark_arts/parse/form4.py` with tests.
 # * Pull the full case-study set (the 9 named tickers) and confirm we get
 #   what we expect for KODK Jul 2020, STMP 2019, LHCG Mar 2022, etc.
 # * Build the LLM extractor for footnote text (Phase 1).
