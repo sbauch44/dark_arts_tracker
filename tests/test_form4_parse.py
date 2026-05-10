@@ -96,6 +96,8 @@ def test_footnotes_attached_to_every_row(rows: list[Form4Row]) -> None:
 def test_to_frame_dtypes(rows: list[Form4Row]) -> None:
     df = form4_rows_to_frame(rows)
     schema = df.schema
+    assert schema["accession_number"] == pl.Utf8
+    assert schema["filed_at"] == pl.Date
     assert schema["period_of_report"] == pl.Date
     assert schema["transaction_date"] == pl.Date
     assert schema["exercise_date"] == pl.Date
@@ -109,6 +111,40 @@ def test_to_frame_dtypes(rows: list[Form4Row]) -> None:
     assert schema["is_officer"] == pl.Boolean
     assert schema["is_ten_pct_owner"] == pl.Boolean
     assert schema["footnotes_json"] == pl.Utf8
+
+
+def test_to_frame_null_pads_submission_fields(rows: list[Form4Row]) -> None:
+    """parse_form4_xml never sets accession_number / filed_at — those come
+    from the ingest layer. The frame should still carry them as typed-null
+    columns so the schema is stable regardless of caller path."""
+    df = form4_rows_to_frame(rows)
+    assert df["accession_number"].null_count() == df.height
+    assert df["filed_at"].null_count() == df.height
+
+
+def test_to_frame_preserves_submission_fields_when_present() -> None:
+    """When the ingest layer enriches rows with accession_number / filed_at,
+    form4_rows_to_frame should pass them through with the right dtypes."""
+    enriched: list[Form4Row] = [{
+        "accession_number": "0001549084-25-000123",
+        "filed_at": "2025-11-17",
+        "issuer_cik": "0001549084",
+        "issuer_ticker": "EKSO",
+        "table_kind": "non_derivative",
+        "transaction_date": "2025-11-15",
+        "shares": "1000",
+        "price_per_share": "5.25",
+        "is_director": False,
+        "is_officer": True,
+        "is_ten_pct_owner": False,
+        "footnotes": {},
+    }]
+    df = form4_rows_to_frame(enriched)
+    row = df.row(0, named=True)
+    assert row["accession_number"] == "0001549084-25-000123"
+    assert row["filed_at"] == datetime.date(2025, 11, 17)
+    assert row["shares"] == 1000.0
+    assert row["price_per_share"] == 5.25
 
 
 def test_to_frame_values(rows: list[Form4Row]) -> None:

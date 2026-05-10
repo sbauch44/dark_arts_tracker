@@ -54,12 +54,21 @@ class Form4Row(TypedDict, total=False):
     underlying_security_title: str | None
     underlying_shares: str | None
     footnotes: dict[str, str]
+    # Submission-level fields the ingest layer threads in (parse_form4_xml
+    # itself never sets these — the XML doesn't carry them).
+    accession_number: str | None
+    filed_at: str | None
 
 
 # Target dtypes for :func:`form4_rows_to_frame`. Order here is the column order
 # of the returned frame. ``footnotes`` is replaced by ``footnotes_json`` (Utf8)
-# so the frame is parquet-safe.
+# so the frame is parquet-safe. ``accession_number`` / ``filed_at`` are
+# tolerated as missing — :func:`form4_rows_to_frame` null-pads any column the
+# input rows don't carry, which is what happens when callers parse a raw XML
+# blob without going through the ingest pipeline.
 _SCHEMA: dict[str, type[pl.DataType]] = {
+    "accession_number": pl.Utf8,
+    "filed_at": pl.Date,
     "issuer_cik": pl.Utf8,
     "issuer_name": pl.Utf8,
     "issuer_ticker": pl.Utf8,
@@ -208,9 +217,16 @@ def form4_rows_to_frame(rows: list[Form4Row]) -> pl.DataFrame:
 
     # Date columns arrive as Utf8 from the XML; everything else gets a direct
     # non-strict cast (None passes through, unparseable values become null).
-    return df.select([
-        pl.col(col).cast(pl.Utf8, strict=False).str.to_date(strict=False).alias(col)
-        if dtype is pl.Date
-        else pl.col(col).cast(dtype, strict=False).alias(col)
-        for col, dtype in _SCHEMA.items()
-    ])
+    # Columns not present in the input rows (e.g. accession_number / filed_at
+    # when called on raw parse output) are null-padded with the right dtype.
+    exprs: list[pl.Expr] = []
+    for col, dtype in _SCHEMA.items():
+        if col not in df.columns:
+            exprs.append(pl.lit(None).cast(dtype).alias(col))
+        elif dtype is pl.Date:
+            exprs.append(
+                pl.col(col).cast(pl.Utf8, strict=False).str.to_date(strict=False).alias(col)
+            )
+        else:
+            exprs.append(pl.col(col).cast(dtype, strict=False).alias(col))
+    return df.select(exprs)
