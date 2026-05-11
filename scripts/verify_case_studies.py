@@ -56,16 +56,10 @@ def _norm(s: str) -> str:
 
 
 def _verify_one(study: CaseStudy) -> VerifyResult:
-    # ingest_case_study downloads the registered window but iter_form4_rows
-    # walks every tar in the per-CIK cache (which may span wider windows
-    # from earlier ad-hoc spot checks). Filter back down to the registered
-    # window so the verification report reflects only what the registry
-    # promises to capture.
-    start, end = study.filing_date_window
-    rows: list[Form4Row] = [
-        r for r in ingest_case_study(study)
-        if r.get("filed_at") and start <= r["filed_at"] <= end
-    ]
+    # ingest_case_study defaults to scope_to_window=True, so the returned
+    # rows are already filtered to study.filing_date_window even if the
+    # per-CIK cache contains tars from wider ad-hoc spot checks.
+    rows: list[Form4Row] = ingest_case_study(study)
     if not rows:
         return VerifyResult(
             study=study,

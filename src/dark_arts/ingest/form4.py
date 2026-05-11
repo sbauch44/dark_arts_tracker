@@ -164,43 +164,84 @@ def download_form4(
     return p
 
 
-def iter_form4_rows(portfolio: Portfolio) -> Iterator[Form4Row]:
+def iter_form4_rows(
+    portfolio: Portfolio,
+    filing_date_window: tuple[str, str] | str | None = None,
+) -> Iterator[Form4Row]:
     """Walk *portfolio*, parse every Form 4 XML, and yield rows enriched with
     ``accession_number`` and ``filed_at`` from the document metadata.
 
     Filters to ``doc.type == '4'`` AND ``doc.extension == '.xml'`` — Form 4
     submissions ship multiple documents (cover-page index, attachments) and
     we only want the structured XML body.
+
+    If *filing_date_window* is provided (as ``(start, end)`` YYYY-MM-DD
+    strings, or a single YYYY-MM-DD string for one day), only documents
+    whose ``filing_date`` falls within ``[start, end]`` are parsed and
+    yielded. This matters because the per-CIK Portfolio directory may have
+    accumulated tars from wider windows than the caller currently cares
+    about (e.g. earlier ad-hoc spot checks). Filtering at the document
+    level — before :func:`parse_form4_xml` — also skips XML parsing for
+    out-of-window docs.
     """
+    if filing_date_window is None:
+        start = end = None
+    elif isinstance(filing_date_window, str):
+        start = end = filing_date_window
+    else:
+        start, end = filing_date_window
+
     for sub in portfolio:
         for doc in sub:
-            if doc.type == "4" and doc.extension == ".xml":
-                for row in parse_form4_xml(doc.content):
-                    yield {
-                        **row,
-                        "accession_number": doc.accession,
-                        "filed_at": doc.filing_date,
-                    }
+            if doc.type != "4" or doc.extension != ".xml":
+                continue
+            if start is not None:
+                fd = doc.filing_date
+                if fd is None or fd < start or fd > end:
+                    continue
+            for row in parse_form4_xml(doc.content):
+                yield {
+                    **row,
+                    "accession_number": doc.accession,
+                    "filed_at": doc.filing_date,
+                }
 
 
 def ingest_form4(
     cik: str,
     filing_date: tuple[str, str] | str,
     base_dir: str | Path | None = None,
+    *,
+    scope_to_window: bool = True,
 ) -> list[Form4Row]:
     """End-to-end: download + parse Form 4 filings for one issuer/window.
 
-    Returns one row per transaction. Safe to re-run — both the download and
-    the parse are pure functions of the inputs (the download is idempotent;
-    the parse has no side effects).
+    By default the returned rows are scoped to *filing_date* — matching the
+    caller's mental model of "give me data for this window". The per-CIK
+    Portfolio cache may contain tars from wider windows (from earlier
+    pulls), but those rows are filtered out here. Pass ``scope_to_window=
+    False`` to return every cached row for the issuer; that's what the
+    parquet build (step 4) wants so it picks up data from multiple
+    historical windows in one pass.
+
+    Safe to re-run — both the download and the parse are pure functions of
+    the inputs (the download is idempotent; the parse has no side effects).
     """
     p = download_form4(cik, filing_date, base_dir)
-    return list(iter_form4_rows(p))
+    window = filing_date if scope_to_window else None
+    return list(iter_form4_rows(p, filing_date_window=window))
 
 
-def ingest_case_study(study: CaseStudy, base_dir: str | Path | None = None) -> list[Form4Row]:
+def ingest_case_study(
+    study: CaseStudy,
+    base_dir: str | Path | None = None,
+    *,
+    scope_to_window: bool = True,
+) -> list[Form4Row]:
     """Convenience: run :func:`ingest_form4` for one :class:`CaseStudy`."""
-    return ingest_form4(study.cik, study.filing_date_window, base_dir)
+    return ingest_form4(
+        study.cik, study.filing_date_window, base_dir, scope_to_window=scope_to_window
+    )
 
 
 __all__ = [

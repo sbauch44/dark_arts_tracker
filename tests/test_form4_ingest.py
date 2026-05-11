@@ -114,6 +114,39 @@ def test_iter_form4_rows_handles_empty_portfolio() -> None:
     assert list(iter_form4_rows(FakePortfolio(subs=[]))) == []
 
 
+def test_iter_form4_rows_filters_by_filing_date_window() -> None:
+    """The optional filing_date_window arg trims rows whose underlying
+    Document.filing_date falls outside ``[start, end]``. Docs without a
+    filing_date are also excluded (defensive)."""
+    portfolio = FakePortfolio(subs=[
+        FakeSubmission(docs=[_fixture_doc("acc-A", "2025-09-15")]),  # in
+        FakeSubmission(docs=[_fixture_doc("acc-B", "2025-11-05")]),  # in
+        FakeSubmission(docs=[_fixture_doc("acc-C", "2026-01-02")]),  # out (after)
+        FakeSubmission(docs=[_fixture_doc("acc-D", "2025-08-31")]),  # out (before)
+    ])
+    rows = list(iter_form4_rows(portfolio, filing_date_window=("2025-09-01", "2025-12-31")))
+    accs = {r["accession_number"] for r in rows}
+    assert accs == {"acc-A", "acc-B"}
+
+
+def test_iter_form4_rows_accepts_single_date_window() -> None:
+    portfolio = FakePortfolio(subs=[
+        FakeSubmission(docs=[_fixture_doc("acc-A", "2025-11-05")]),
+        FakeSubmission(docs=[_fixture_doc("acc-B", "2025-11-06")]),
+    ])
+    rows = list(iter_form4_rows(portfolio, filing_date_window="2025-11-05"))
+    assert {r["accession_number"] for r in rows} == {"acc-A"}
+
+
+def test_iter_form4_rows_no_window_walks_everything() -> None:
+    portfolio = FakePortfolio(subs=[
+        FakeSubmission(docs=[_fixture_doc("acc-A", "2020-01-01")]),
+        FakeSubmission(docs=[_fixture_doc("acc-B", "2026-05-10")]),
+    ])
+    rows = list(iter_form4_rows(portfolio))
+    assert {r["accession_number"] for r in rows} == {"acc-A", "acc-B"}
+
+
 # --- CASE_STUDIES registry -------------------------------------------------
 
 
