@@ -95,3 +95,41 @@ a window-widening problem.
 * For the eventual labeled positive set, we'll want to flag rows like the
   EKSO 2025-11-05 trio and the RPD 2026-03-31 pair as "headline grants" —
   but that labeling is a Phase 2 concern.
+
+## Step 4 result — `data/parquet/grants.parquet` (built 2026-05-11)
+
+Phase 1 deliverable written by `scripts/build_grants_parquet.py`. The
+script walks the per-CIK cache offline (no EFTS calls), so it's instant
+and re-runnable after any ingest refresh.
+
+* **1,727 rows × 27 cols** across all 9 case studies, **64 KB** on disk
+* **903 distinct accessions**, **855 grant-coded (A) transactions**
+* Filing dates span **2018-05-29 → 2026-04-24**
+* Schema = `dark_arts.parse.form4._SCHEMA` (dates as `pl.Date`, numerics
+  as `pl.Float64`, relationship flags as `pl.Boolean`, footnotes as a
+  JSON-encoded `pl.Utf8` column)
+
+Per-issuer row counts:
+
+| Ticker | Rows | Subs | Filing range |
+|---|---:|---:|---|
+| EKSO | 24 | 22 | 2024-03 → 2025-12 (widened by spot checks) |
+| GME | 164 | 117 | 2020-02 → 2025-12 |
+| GSKY | 277 | 134 | 2018-05 → 2022-03 |
+| KODK | 19 | 7 | 2020-06 → 2020-07 |
+| LHCG | 17 | 16 | 2022-03 → 2022-04 |
+| RPD | 11 | 9 | 2026-01 → 2026-04 |
+| STMP | 39 | 30 | 2019-01 → 2019-11 |
+| TWTR | 58 | 43 | 2022-03 → 2022-05 |
+| VAC | 1,118 | 525 | 2020-01 → 2025-12 |
+
+Both spot-checked headline grants verified present in the file:
+
+* EKSO 2025-11-05: Davis Scott G. 80,000 / Wong Jerome 19,500 /
+  Jones Jason C 15,000 — `non_derivative` `Common Stock`, code `A`
+* RPD 2026-03-31: Thomas Corey E. 1,125,000 / Brown Rafeal E. 275,000 —
+  `derivative` `PERFORMANCE RIGHTS`, code `A`
+
+The file is gitignored (`data/` is fully derived). To rebuild from
+scratch: `python scripts/verify_case_studies.py` (downloads tars) then
+`python scripts/build_grants_parquet.py` (concatenates the cache).
